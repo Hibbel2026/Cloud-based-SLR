@@ -1,7 +1,45 @@
-# Sign Language Recognition on AWS
+# Sign Language Recognition - AWS Deployment Comparison
 
-Master's thesis comparing AWS deployment architectures (SageMaker, EC2, Fargate) for sign language recognition systems using MediaPipe and neural networks on the WLASL-100 dataset.
+Master's thesis project comparing AWS cloud deployment architectures for sign language recognition systems.
 
-**Metrics:** Latency, cost, reliability, operational complexity  
-**Timeline:**  30 Weeks  
-**Partner:** Knightec AB
+## Project Overview
+
+This project evaluates three AWS deployment options for ML inference workloads:
+- **Amazon SageMaker** - Managed ML platform
+- **Amazon EC2** - Virtual server instances
+- **AWS Fargate** - Serverless containers
+
+### Metrics Evaluated
+- Latency (inference time)
+- Cost (per inference, monthly)
+- Reliability (uptime, error rates)
+- Operational complexity
+
+## Tech Stack
+- **Dataset**: WLASL-100 (Word-Level American Sign Language)
+- **Feature Extraction**: MediaPipe
+- **Model**: Neural Network Classifier
+- **Cloud**: AWS (SageMaker, EC2, Fargate)
+
+## Setup
+
+### 1. Create virtual environment
+```bash
+python -m venv venv
+source venv/bin/activate  # Mac/Linux
+```
+
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Download dataset
+```bash
+python scripts/download_data.py
+```
+
+## Author
+Hibatallah Belhajali - Master's Thesis Project in partnership with Knightec AB
+
+Supervisor: Julius Jensen (Knightec AB)
