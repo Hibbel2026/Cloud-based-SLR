@@ -3,22 +3,15 @@
 Sign Language Recognition - Core ML Modules
 =============================================================================
 File: src/__init__.py
-Description: Package initializer for the core ML modules. Exports the main
-             classes and functions for preprocessing, model building, and
-             inference.
+Description: Package initializer for the core ML modules.
 =============================================================================
 """
 
-from .preprocessing import MediaPipeExtractor, preprocess_dataset
-from .model import SignLanguageClassifier, create_lstm_model, create_transformer_model
-from .inference import SignLanguagePredictor, benchmark_inference
+# Only import what actually exists
+try:
+    from .preprocessing import MediaPipeExtractor
+except ImportError:
+    pass
 
-__all__ = [
-    'MediaPipeExtractor',
-    'preprocess_dataset',
-    'SignLanguageClassifier',
-    'create_lstm_model',
-    'create_transformer_model',
-    'SignLanguagePredictor',
-    'benchmark_inference'
-]
+__all__ = []
+
