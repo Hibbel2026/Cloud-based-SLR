@@ -101,7 +101,7 @@ val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
 model = CNN_LSTM(num_classes=100).to(device)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-5)
 best_val_acc = 0
 
 # ===== TRAIN LOOP =====

@@ -14,6 +14,20 @@ class CNN_LSTM(nn.Module):
 
         # remove classification layer
         self.cnn = nn.Sequential(*list(resnet.children())[:-1])
+        
+            
+        # ===== FREEZE CNN =====
+
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+
+        # ===== UNFREEZE LAST BLOCK =====
+
+        for param in self.cnn[-1].parameters():
+            param.requires_grad = True
+
+
 
         self.feature_dim = 2048
 
