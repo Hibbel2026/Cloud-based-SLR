@@ -42,8 +42,7 @@ class CNN_LSTM(nn.Module):
         x = x.view(batch_size * seq_len, C, H, W)
 
         # CNN features
-        with torch.no_grad():
-            features = self.cnn(x)
+        features = self.cnn(x)
 
         features = features.view(batch_size, seq_len, self.feature_dim)
 
