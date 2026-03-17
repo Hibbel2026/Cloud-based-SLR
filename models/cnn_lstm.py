@@ -24,7 +24,7 @@ class CNN_LSTM(nn.Module):
 
         # ===== UNFREEZE LAST BLOCK =====
 
-        for param in self.cnn[-1].parameters():
+        for param in self.cnn[-2].parameters():
             param.requires_grad = True
 
 
@@ -35,14 +35,18 @@ class CNN_LSTM(nn.Module):
         # ===== LSTM =====
         self.lstm = nn.LSTM(
             input_size=self.feature_dim,
-            hidden_size=512,
+            hidden_size=256,
             num_layers=2,
-            batch_first=True
+            batch_first=True,
+            dropout=0.3
         )
 
 
+        # ===== DROPOUT =====
+        self.dropout = nn.Dropout(0.5)
+
         # ===== CLASSIFIER =====
-        self.fc = nn.Linear(512, num_classes)
+        self.fc = nn.Linear(256, num_classes)
 
 
     def forward(self, x):
@@ -58,6 +62,7 @@ class CNN_LSTM(nn.Module):
         # CNN features
         features = self.cnn(x)
 
+        features = features.squeeze(-1).squeeze(-1)
         features = features.view(batch_size, seq_len, self.feature_dim)
 
         # LSTM
@@ -65,6 +70,9 @@ class CNN_LSTM(nn.Module):
 
         # last time step
         out = lstm_out[:, -1, :]
+        
+        # APPLY DROPOUT
+        out = self.dropout(out)
 
         # classifier
         out = self.fc(out)

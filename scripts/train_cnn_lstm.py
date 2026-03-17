@@ -19,6 +19,8 @@ SEQUENCE_LENGTH = 24
 BATCH_SIZE = 4
 EPOCHS = 20
 
+os.makedirs("checkpoints", exist_ok=True)
+os.makedirs("outputs", exist_ok=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -84,6 +86,10 @@ class VideoDataset(Dataset):
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
 ])
 
 
@@ -92,8 +98,20 @@ transform = transforms.Compose([
 train_dataset = VideoDataset(TRAIN_DIR, transform)
 val_dataset = VideoDataset(VAL_DIR, transform)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True
+)
+
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=BATCH_SIZE,
+    num_workers=4,
+    pin_memory=True
+)
 
 
 # ===== MODEL =====
@@ -101,7 +119,16 @@ val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
 model = CNN_LSTM(num_classes=100).to(device)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-5)
+
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
+
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode='max',
+    patience=2,
+    factor=0.5
+)
+
 best_val_acc = 0
 
 # ===== TRAIN LOOP =====
@@ -124,12 +151,13 @@ for epoch in range(EPOCHS):
         loss = criterion(outputs, labels)
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         optimizer.step()
 
         total_loss += loss.item()
 
-    print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}")
+    print(f"Epoch {epoch+1} | Loss: {total_loss:.4f}")
     # ===== VALIDATION =====
 
     model.eval()
@@ -154,10 +182,33 @@ for epoch in range(EPOCHS):
     val_acc = correct / total
 
     print(f"Validation Accuracy: {val_acc:.4f}")
+    scheduler.step(val_acc)
+    print("Current LR:", optimizer.param_groups[0]['lr'])
+    
+    # SAVE CHECKPOINT VARJE EPOCH
+    torch.save({
+        "epoch": epoch,
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+    }, "checkpoints/latest.pt")
+    
+    torch.save({
+        "epoch": epoch,
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+    }, f"checkpoints/epoch_{epoch}.pt")
 
+
+    # TA BORT gamla checkpoints lokalt
+    keep_last = 5
+
+    old_epoch = epoch - keep_last
+    old_path = f"checkpoints/epoch_{old_epoch}.pt"
+
+    if old_epoch >= 0 and os.path.exists(old_path):
+        os.remove(old_path)
 
     # ===== SAVE BEST MODEL =====
-
     if val_acc > best_val_acc:
 
         best_val_acc = val_acc
@@ -168,5 +219,5 @@ for epoch in range(EPOCHS):
         )
 
         print("Best model saved!")
-
+        
 print("Training finished")
