@@ -11,13 +11,14 @@ from models.cnn_lstm import CNN_LSTM
 
 # ===== SETTINGS =====
 
-TRAIN_DIR = "data/frames/train"
-VAL_DIR = "data/frames/val"
+TRAIN_DIR = "data/train"
+VAL_DIR = "data/val"
+TEST_DIR = "data/test"
 
 IMG_SIZE = 224
 SEQUENCE_LENGTH = 24
 BATCH_SIZE = 4
-EPOCHS = 20
+EPOCHS = 100
 
 os.makedirs("checkpoints", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
@@ -199,6 +200,7 @@ for epoch in range(EPOCHS):
     }, f"checkpoints/epoch_{epoch}.pt")
 
 
+
     # TA BORT gamla checkpoints lokalt
     keep_last = 5
 
@@ -221,3 +223,41 @@ for epoch in range(EPOCHS):
         print("Best model saved!")
         
 print("Training finished")
+
+# ===== TEST EVALUATION =====
+
+# LOAD BEST MODEL (VIKTIGT)
+model.load_state_dict(torch.load("outputs/best_cnn_lstm_model.pth"))
+
+print("Running TEST evaluation...")
+
+
+
+test_dataset = VideoDataset(TEST_DIR, transform)
+
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    num_workers=4,
+    pin_memory=True
+)
+
+model.eval()
+
+correct = 0
+total = 0
+
+with torch.no_grad():
+    for videos, labels in test_loader:
+        videos = videos.to(device)
+        labels = labels.to(device)
+
+        outputs = model(videos)
+        _, predicted = torch.max(outputs, 1)
+
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+test_acc = correct / total
+
+print(f"TEST Accuracy: {test_acc:.4f}")
