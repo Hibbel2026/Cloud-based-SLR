@@ -10,33 +10,11 @@ class CNN_LSTM(nn.Module):
         super(CNN_LSTM, self).__init__()
 
         # # ===== CNN BACKBONE =====
-        # resnet = models.resnet50(pretrained=True)
+        resnet = models.resnet50(pretrained=True)
 
         # # remove classification layer
         # self.cnn = nn.Sequential(*list(resnet.children())[:-1])
         
-        # resnet = models.resnet50(pretrained=True)
-        
-        resnet = models.resnet50(pretrained=True)
-
-
-        # ÄNDRA INPUT TILL 6 KANALER
-        # resnet.conv1 = nn.Conv2d(
-        #     6, 64, kernel_size=7, stride=2, padding=3, bias=False
-        # )
-        
-        old_weights = resnet.conv1.weight.data.clone()
-
-        resnet.conv1 = nn.Conv2d(
-            6, 64, kernel_size=7, stride=2, padding=3, bias=False
-        )
-
-        with torch.no_grad():
-            # RGB = pretrained
-            resnet.conv1.weight[:, :3, :, :] = old_weights
-            
-            # Skeleton = random small init
-            resnet.conv1.weight[:, 3:, :, :] = old_weights.mean(dim=1, keepdim=True).repeat(1,3,1,1) * 0.1
 
         self.cnn = nn.Sequential(*list(resnet.children())[:-1])
         
@@ -44,12 +22,10 @@ class CNN_LSTM(nn.Module):
         # ===== FREEZE CNN =====
 
         # Freeze early layers
-        for param in list(self.cnn.parameters())[:-30]:
-            param.requires_grad = False
-
-        # 🔥 UNFREEZE sista layers (VIKTIG)
-        for param in list(self.cnn.parameters())[-30:]:
+        for param in self.cnn.parameters():
             param.requires_grad = True
+
+    
 
 
 
