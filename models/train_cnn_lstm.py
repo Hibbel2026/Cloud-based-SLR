@@ -171,13 +171,13 @@ transform = transforms.Compose([
 # ===== DATA LOADERS =====
 
 train_dataset = HybridDataset(
-    root_img="data/frames/train",
+    root_img="data/train",
     root_skel="data_skeleton/train",
     transform=transform
 )
 
 val_dataset = HybridDataset(
-    root_img="data/frames/val",
+    root_img="data/val",
     root_skel="data_skeleton/val",
     transform=transform
 )
@@ -342,7 +342,7 @@ print("Running TEST evaluation...")
 
 # test_dataset = VideoDataset(TEST_DIR, transform)
 test_dataset = HybridDataset(
-    root_img="data/frames/test",
+    root_img="data/test",
     root_skel="data_skeleton/test",
     transform=transform
 )
