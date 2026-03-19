@@ -27,39 +27,89 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ===== DATASET =====
 
-class VideoDataset(Dataset):
+# class VideoDataset(Dataset):
 
-    def __init__(self, root_dir, transform=None):
+#     def __init__(self, root_dir, transform=None):
 
+#         self.samples = []
+#         self.transform = transform
+
+#         classes = sorted(os.listdir(root_dir))
+#         self.class_to_idx = {cls: i for i, cls in enumerate(classes)}
+
+#         for cls in classes:
+
+#             class_path = os.path.join(root_dir, cls)
+
+#             for video in os.listdir(class_path):
+
+#                 video_path = os.path.join(class_path, video)
+
+#                 if os.path.isdir(video_path):
+#                     self.samples.append((video_path, self.class_to_idx[cls]))
+
+
+#     def __len__(self):
+#         return len(self.samples)
+
+
+#     def __getitem__(self, idx):
+
+#         video_path, label = self.samples[idx]
+
+#         frames = sorted(os.listdir(video_path))
+#         if not frames:
+#             raise RuntimeError(f"No frames found in: {video_path}")
+
+#         if len(frames) < SEQUENCE_LENGTH:
+#             frames = frames + [frames[-1]] * (SEQUENCE_LENGTH - len(frames))
+#         else:
+#             frames = frames[:SEQUENCE_LENGTH]
+
+#         images = []
+
+#         for f in frames:
+
+#             img = Image.open(os.path.join(video_path, f)).convert("RGB")
+
+#             if self.transform:
+#                 img = self.transform(img)
+
+#             images.append(img)
+
+#         images = torch.stack(images)
+
+#         return images, label
+
+# 
+
+class HybridDataset(Dataset):
+    def __init__(self, root_img, root_skel, transform=None):
         self.samples = []
         self.transform = transform
+        self.root_img = root_img
+        self.root_skel = root_skel
 
-        classes = sorted(os.listdir(root_dir))
+        classes = sorted(os.listdir(root_img))
         self.class_to_idx = {cls: i for i, cls in enumerate(classes)}
 
         for cls in classes:
-
-            class_path = os.path.join(root_dir, cls)
-
-            for video in os.listdir(class_path):
-
-                video_path = os.path.join(class_path, video)
-
+            img_cls_path = os.path.join(root_img, cls)
+            for video in os.listdir(img_cls_path):
+                video_path = os.path.join(img_cls_path, video)
                 if os.path.isdir(video_path):
-                    self.samples.append((video_path, self.class_to_idx[cls]))
-
+                    self.samples.append((cls, video, self.class_to_idx[cls]))
 
     def __len__(self):
         return len(self.samples)
 
-
     def __getitem__(self, idx):
+        cls, video, label = self.samples[idx]
 
-        video_path, label = self.samples[idx]
+        img_path = os.path.join(self.root_img, cls, video)
+        skel_path = os.path.join(self.root_skel, cls, video)
 
-        frames = sorted(os.listdir(video_path))
-        if not frames:
-            raise RuntimeError(f"No frames found in: {video_path}")
+        frames = sorted(os.listdir(img_path))
 
         if len(frames) < SEQUENCE_LENGTH:
             frames = frames + [frames[-1]] * (SEQUENCE_LENGTH - len(frames))
@@ -69,35 +119,68 @@ class VideoDataset(Dataset):
         images = []
 
         for f in frames:
+            img = Image.open(os.path.join(img_path, f)).convert("RGB")
+            # skel = Image.open(os.path.join(skel_path, f)).convert("RGB")
+            
+            skel_file = os.path.join(skel_path, f)
 
-            img = Image.open(os.path.join(video_path, f)).convert("RGB")
+            if os.path.exists(skel_file):
+                skel = Image.open(skel_file).convert("RGB")
+            else:
+                skel = img  # fallback
 
             if self.transform:
                 img = self.transform(img)
+                skel = self.transform(skel)
 
-            images.append(img)
+            # 🔥 concat channels → (6, H, W)
+            combined = torch.cat([img, skel], dim=0)
+            images.append(combined)
 
-        images = torch.stack(images)
-
-        return images, label
-
-
+        return torch.stack(images), label
+    
 # ===== TRANSFORMS =====
 
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
+    # transforms.Normalize(
+    #     mean=[0.485, 0.456, 0.406],
+    #     std=[0.229, 0.224, 0.225]
+    # )
     transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
+        mean=[0.5]*6,
+        std=[0.5]*6
     )
 ])
 
 
+# # ===== DATA LOADERS =====
+
+# train_dataset = VideoDataset(TRAIN_DIR, transform)
+# val_dataset = VideoDataset(VAL_DIR, transform)
+
+# train_loader = DataLoader(
+#     train_dataset,
+#     batch_size=BATCH_SIZE,
+#     shuffle=True,
+#     num_workers=4,
+#     pin_memory=True
+# )
+
 # ===== DATA LOADERS =====
 
-train_dataset = VideoDataset(TRAIN_DIR, transform)
-val_dataset = VideoDataset(VAL_DIR, transform)
+train_dataset = HybridDataset(
+    root_img="data/frames/train",
+    root_skel="data_skeleton/train",
+    transform=transform
+)
+
+val_dataset = HybridDataset(
+    root_img="data/frames/val",
+    root_skel="data_skeleton/val",
+    transform=transform
+)
 
 train_loader = DataLoader(
     train_dataset,
@@ -106,6 +189,7 @@ train_loader = DataLoader(
     num_workers=4,
     pin_memory=True
 )
+
 
 val_loader = DataLoader(
     val_dataset,
@@ -121,7 +205,8 @@ model = CNN_LSTM(num_classes=100).to(device)
 
 criterion = nn.CrossEntropyLoss()
 
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-5)
+scaler = torch.amp.GradScaler("cuda")
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
@@ -139,26 +224,48 @@ for epoch in range(EPOCHS):
     model.train()
 
     total_loss = 0
+    correct_train = 0
+    total_train = 0
 
     for videos, labels in train_loader:
 
-        videos = videos.to(device)
-        labels = labels.to(device)
+        
+        videos = videos.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        # optimizer.zero_grad()
 
+        # outputs = model(videos)
+
+        # loss = criterion(outputs, labels)
+
+        # loss.backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        # optimizer.step()
+        
         optimizer.zero_grad()
 
-        outputs = model(videos)
+        with torch.amp.autocast("cuda"):
+            outputs = model(videos)
+            loss = criterion(outputs, labels)
+            
+        _, predicted = torch.max(outputs, 1)
+        total_train += labels.size(0)
+        correct_train += (predicted == labels).sum().item()
 
-        loss = criterion(outputs, labels)
+        scaler.scale(loss).backward()
 
-        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         total_loss += loss.item()
 
-    print(f"Epoch {epoch+1} | Loss: {total_loss:.4f}")
+    avg_loss = total_loss / len(train_loader)
+    train_acc = correct_train / total_train
+    print(f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.4f}") 
+        
     # ===== VALIDATION =====
 
     model.eval()
@@ -170,8 +277,8 @@ for epoch in range(EPOCHS):
 
         for videos, labels in val_loader:
 
-            videos = videos.to(device)
-            labels = labels.to(device)
+            videos = videos.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
 
             outputs = model(videos)
 
@@ -227,13 +334,18 @@ print("Training finished")
 # ===== TEST EVALUATION =====
 
 # LOAD BEST MODEL (VIKTIGT)
-model.load_state_dict(torch.load("outputs/best_cnn_lstm_model.pth"))
+model.load_state_dict(torch.load("outputs/best_cnn_lstm_model.pth", map_location=device))
 
 print("Running TEST evaluation...")
 
 
 
-test_dataset = VideoDataset(TEST_DIR, transform)
+# test_dataset = VideoDataset(TEST_DIR, transform)
+test_dataset = HybridDataset(
+    root_img="data/frames/test",
+    root_skel="data_skeleton/test",
+    transform=transform
+)
 
 test_loader = DataLoader(
     test_dataset,
@@ -249,8 +361,8 @@ total = 0
 
 with torch.no_grad():
     for videos, labels in test_loader:
-        videos = videos.to(device)
-        labels = labels.to(device)
+        videos = videos.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
         outputs = model(videos)
         _, predicted = torch.max(outputs, 1)
