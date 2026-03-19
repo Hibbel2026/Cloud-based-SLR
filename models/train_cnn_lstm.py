@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import os
 
-from cnn_lstm import CNN_LSTM
+from models.cnn_lstm import CNN_LSTM
 
 
 # ===== SETTINGS =====
