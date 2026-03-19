@@ -32,8 +32,11 @@ class CNN_LSTM(nn.Module):
         )
 
         with torch.no_grad():
+            # RGB = pretrained
             resnet.conv1.weight[:, :3, :, :] = old_weights
-            resnet.conv1.weight[:, 3:, :, :] = old_weights
+            
+            # Skeleton = random small init
+            resnet.conv1.weight[:, 3:, :, :] = old_weights.mean(dim=1, keepdim=True).repeat(1,3,1,1) * 0.1
 
         self.cnn = nn.Sequential(*list(resnet.children())[:-1])
         

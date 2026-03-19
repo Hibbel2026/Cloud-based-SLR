@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import os
 
-from models.cnn_lstm import CNN_LSTM
+from cnn_lstm import CNN_LSTM
 
 
 # ===== SETTINGS =====
@@ -135,6 +135,8 @@ class HybridDataset(Dataset):
 
             # 🔥 concat channels → (6, H, W)
             combined = torch.cat([img, skel], dim=0)
+            combined = (combined - 0.5) / 0.5
+
             images.append(combined)
 
         return torch.stack(images), label
@@ -148,10 +150,7 @@ transform = transforms.Compose([
     #     mean=[0.485, 0.456, 0.406],
     #     std=[0.229, 0.224, 0.225]
     # )
-    transforms.Normalize(
-        mean=[0.5]*6,
-        std=[0.5]*6
-    )
+
 ])
 
 
