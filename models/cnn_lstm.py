@@ -43,7 +43,7 @@ class CNN_LSTM(nn.Module):
         
         self.lstm = nn.LSTM(
             input_size=self.feature_dim,
-            hidden_size=512,
+            hidden_size=256,
             num_layers=2,
             batch_first=True,
             dropout=0.3,
@@ -52,7 +52,7 @@ class CNN_LSTM(nn.Module):
 
 
         # ===== DROPOUT =====
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.6)
 
         # ===== CLASSIFIER =====
         # self.fc = nn.Linear(256, num_classes)

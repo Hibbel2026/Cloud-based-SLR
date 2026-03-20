@@ -16,7 +16,7 @@ VAL_DIR = "data/val"
 TEST_DIR = "data/test"
 
 IMG_SIZE = 224
-SEQUENCE_LENGTH = 24
+SEQUENCE_LENGTH = 16
 BATCH_SIZE = 4
 EPOCHS = 100
 
@@ -88,12 +88,21 @@ class VideoDataset(Dataset):
 
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
+
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(10),
+    transforms.ColorJitter(
+        brightness=0.2,
+        contrast=0.2,
+        saturation=0.2
+    ),
+
     transforms.ToTensor(),
+
     transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]
     )
-
 ])
 
 
@@ -124,7 +133,7 @@ model = CNN_LSTM(num_classes=100).to(device)
 
 criterion = nn.CrossEntropyLoss()
 
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-5)
 scaler = torch.amp.GradScaler(enabled=torch.cuda.is_available())
 
 # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
