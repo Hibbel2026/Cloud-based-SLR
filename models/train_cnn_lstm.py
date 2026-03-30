@@ -5,8 +5,10 @@ from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import os
+import time
+import json
 
-from models.cnn_lstm import CNN_LSTM
+from cnn_lstm import CNN_LSTM
 
 
 # ===== SETTINGS =====
@@ -20,8 +22,12 @@ SEQUENCE_LENGTH = 16
 BATCH_SIZE = 4
 EPOCHS = 100
 
+INSTANCE_PRICE_PER_HOUR = 0.526         #g4dn.xlarge price
+NUM_RUNS = 3
+
 os.makedirs("checkpoints", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -48,18 +54,14 @@ class VideoDataset(Dataset):
                 if os.path.isdir(video_path):
                     self.samples.append((video_path, self.class_to_idx[cls]))
 
-
     def __len__(self):
         return len(self.samples)
-
 
     def __getitem__(self, idx):
 
         video_path, label = self.samples[idx]
 
         frames = sorted(os.listdir(video_path))
-        if not frames:
-            raise RuntimeError(f"No frames found in: {video_path}")
 
         if len(frames) < SEQUENCE_LENGTH:
             frames = frames + [frames[-1]] * (SEQUENCE_LENGTH - len(frames))
@@ -69,7 +71,6 @@ class VideoDataset(Dataset):
         images = []
 
         for f in frames:
-
             img = Image.open(os.path.join(video_path, f)).convert("RGB")
 
             if self.transform:
@@ -82,27 +83,16 @@ class VideoDataset(Dataset):
         return images, label
 
 
-
-
 # ===== TRANSFORMS =====
 
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
-
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(10),
-    transforms.ColorJitter(
-        brightness=0.2,
-        contrast=0.2,
-        saturation=0.2
-    ),
-
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
     transforms.ToTensor(),
-
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
 ])
 
 
@@ -127,74 +117,115 @@ val_loader = DataLoader(
 )
 
 
-# ===== MODEL =====
+for run in range(NUM_RUNS):
 
-model = CNN_LSTM(num_classes=100).to(device)
+    print(f"\n===== RUN {run+1}/{NUM_RUNS} =====")
 
-criterion = nn.CrossEntropyLoss()
+    run_id = f"{run}_{int(time.time())}"
 
-optimizer = optim.Adam(model.parameters(), lr=1e-5)
-scaler = torch.amp.GradScaler(enabled=torch.cuda.is_available())
+    # ===== MODEL RESET =====
+    model = CNN_LSTM(num_classes=100).to(device)
 
-# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-#     optimizer,
-#     mode='max',
-#     patience=2,
-#     factor=0.5
-# )
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    scaler = torch.amp.GradScaler(enabled=torch.cuda.is_available())
 
-best_val_acc = 0
+    best_val_acc = 0
 
-# ===== TRAIN LOOP =====
+    train_start_time = time.time()
+    epoch_times = []
+    epoch_logs = []
 
-for epoch in range(EPOCHS):
+    # ===== TRAIN LOOP =====
+    for epoch in range(EPOCHS):
 
-    model.train()
+        epoch_start = time.time()
 
-    total_loss = 0
-    correct_train = 0
-    total_train = 0
+        model.train()
 
-    for videos, labels in train_loader:
+        total_loss = 0
+        correct_train = 0
+        total_train = 0
 
-        
-        videos = videos.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
-        # optimizer.zero_grad()
+        for videos, labels in train_loader:
 
-        # outputs = model(videos)
+            videos = videos.to(device)
+            labels = labels.to(device)
 
-        # loss = criterion(outputs, labels)
+            optimizer.zero_grad()
 
-        # loss.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            with torch.amp.autocast(device_type="cuda", enabled=torch.cuda.is_available()):
+                outputs = model(videos)
+                loss = criterion(outputs, labels)
 
-        # optimizer.step()
-        
-        optimizer.zero_grad()
+            _, predicted = torch.max(outputs, 1)
+            total_train += labels.size(0)
+            correct_train += (predicted == labels).sum().item()
 
-        with torch.amp.autocast(device_type="cuda", enabled=torch.cuda.is_available()):
-            outputs = model(videos)
-            loss = criterion(outputs, labels)
-            
-        _, predicted = torch.max(outputs, 1)
-        total_train += labels.size(0)
-        correct_train += (predicted == labels).sum().item()
+            scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(optimizer)
+            scaler.update()
 
-        scaler.scale(loss).backward()
+            total_loss += loss.item()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        avg_loss = total_loss / len(train_loader)
+        train_acc = correct_train / total_train
 
-        scaler.step(optimizer)
-        scaler.update()
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
 
-        total_loss += loss.item()
+        print(f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.4f} | Time: {epoch_time:.2f}s")
 
-    avg_loss = total_loss / len(train_loader)
-    train_acc = correct_train / total_train
-    print(f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.4f}") 
-        
-    # ===== VALIDATION =====
+        # ===== VALIDATION =====
+        model.eval()
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for videos, labels in val_loader:
+
+                videos = videos.to(device)
+                labels = labels.to(device)
+
+                outputs = model(videos)
+                _, predicted = torch.max(outputs, 1)
+
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        val_acc = correct / total
+
+        epoch_logs.append({
+            "epoch": epoch + 1,
+            "epoch_time_sec": epoch_time,
+            "train_accuracy": train_acc,
+            "val_accuracy": val_acc,
+            "loss": avg_loss
+        })
+
+        print(f"Validation Accuracy: {val_acc:.4f}")
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), f"outputs/best_model_{run_id}.pth")
+            print("Best model saved!")
+
+    print("Training finished")
+
+    avg_epoch_time = sum(epoch_times) / len(epoch_times)
+    train_total_time = time.time() - train_start_time
+    training_cost = (train_total_time / 3600) * INSTANCE_PRICE_PER_HOUR
+
+    print(f"Average Epoch Time: {avg_epoch_time:.2f} sec")
+    print(f"Total Training Time: {train_total_time:.2f} sec")
+    print(f"Training Cost: ${training_cost:.4f}")
+
+    # ===== TEST =====
+    model.load_state_dict(torch.load(f"outputs/best_model_{run_id}.pth", map_location=device))
+
+    test_dataset = VideoDataset(TEST_DIR, transform)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
 
     model.eval()
 
@@ -202,99 +233,39 @@ for epoch in range(EPOCHS):
     total = 0
 
     with torch.no_grad():
+        for videos, labels in test_loader:
 
-        for videos, labels in val_loader:
-
-            videos = videos.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+            videos = videos.to(device)
+            labels = labels.to(device)
 
             outputs = model(videos)
-
             _, predicted = torch.max(outputs, 1)
 
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
-    val_acc = correct / total
+    test_acc = correct / total
+    print(f"TEST Accuracy: {test_acc:.4f}")
 
-    print(f"Validation Accuracy: {val_acc:.4f}")
-    
-    # scheduler.step(val_acc)
-    print("Current LR:", optimizer.param_groups[0]['lr'])
-    
-    # SAVE CHECKPOINT VARJE EPOCH
-    torch.save({
-        "epoch": epoch,
-        "model_state": model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-    }, "checkpoints/latest.pt")
-    
-    torch.save({
-        "epoch": epoch,
-        "model_state": model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-    }, f"checkpoints/epoch_{epoch}.pt")
+    # ===== SAVE RESULTS =====
+    results = {
+        "run_id": run_id,
+        "instance_type": "g4dn.xlarge",
+        "batch_size": BATCH_SIZE,
+        "epochs": EPOCHS,
+        "train_time_sec": train_total_time,
+        "training_cost": training_cost,
+        "avg_epoch_time": avg_epoch_time,
+        "best_val_accuracy": best_val_acc,
+        "test_accuracy": test_acc
+    }
 
+    with open(f"outputs/training_results_{run_id}.json", "w") as f:
+        json.dump(results, f, indent=4)
 
+    with open(f"outputs/epoch_logs_{run_id}.json", "w") as f:
+        json.dump(epoch_logs, f, indent=4)
 
-    # TA BORT gamla checkpoints lokalt
-    keep_last = 5
-
-    old_epoch = epoch - keep_last
-    old_path = f"checkpoints/epoch_{old_epoch}.pt"
-
-    if old_epoch >= 0 and os.path.exists(old_path):
-        os.remove(old_path)
-
-    # ===== SAVE BEST MODEL =====
-    if val_acc > best_val_acc:
-
-        best_val_acc = val_acc
-
-        torch.save(
-            model.state_dict(),
-            "outputs/best_cnn_lstm_model.pth"
-        )
-
-        print("Best model saved!")
-        
-print("Training finished")
-
-# ===== TEST EVALUATION =====
-
-# LOAD BEST MODEL (VIKTIGT)
-model.load_state_dict(torch.load("outputs/best_cnn_lstm_model.pth", map_location=device))
-
-print("Running TEST evaluation...")
-
-
-
-test_dataset = VideoDataset(TEST_DIR, transform)
-
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=BATCH_SIZE,
-    num_workers=4,
-    pin_memory=True
-)
-
-model.eval()
-
-correct = 0
-total = 0
-
-with torch.no_grad():
-    for videos, labels in test_loader:
-        videos = videos.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
-
-        outputs = model(videos)
-        _, predicted = torch.max(outputs, 1)
-
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-
-test_acc = correct / total
-
-print(f"TEST Accuracy: {test_acc:.4f}")
+    # ===== CLEAN GPU =====
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

@@ -58,7 +58,7 @@ class CNN_LSTM(nn.Module):
         # self.fc = nn.Linear(256, num_classes)
 
         self.fc = nn.Sequential(
-            nn.Linear(512 * 2, 256),  # 🔥 *2 pga bidirectional
+            nn.Linear(256 * 2, 256),  # *2 pga bidirectional
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(256, num_classes)
