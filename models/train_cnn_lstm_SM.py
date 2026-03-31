@@ -13,22 +13,24 @@ from cnn_lstm import CNN_LSTM
 
 # ===== SETTINGS =====
 
-TRAIN_DIR = "data/train"
-VAL_DIR = "data/val"
-TEST_DIR = "data/test"
+TRAIN_DIR = os.environ["SM_CHANNEL_TRAIN"]
+VAL_DIR = os.environ["SM_CHANNEL_VAL"]
+TEST_DIR = os.environ["SM_CHANNEL_TEST"]
 
 IMG_SIZE = 224
 SEQUENCE_LENGTH = 16
 BATCH_SIZE = 4
-EPOCHS = 100
-
-INSTANCE_PRICE_PER_HOUR = 0.526         #g4dn.xlarge price
-NUM_RUNS = 3
+EPOCHS = 70
+INSTANCE_TYPE = "g5.xlarge"
+INSTANCE_PRICE_PER_HOUR = 1.41     # SageMaker approx
+NUM_RUNS = 10
 
 os.makedirs("checkpoints", exist_ok=True)
-os.makedirs("outputs", exist_ok=True)
+OUTPUT_DIR = os.environ.get("SM_MODEL_DIR", "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
 
 
 # ===== DATASET =====
@@ -208,7 +210,7 @@ for run in range(NUM_RUNS):
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), f"outputs/best_model_{run_id}.pth")
+            torch.save(model.state_dict(), f"{OUTPUT_DIR}/best_model_{run_id}.pth")  
             print("Best model saved!")
 
     print("Training finished")
@@ -222,8 +224,7 @@ for run in range(NUM_RUNS):
     print(f"Training Cost: ${training_cost:.4f}")
 
     # ===== TEST =====
-    model.load_state_dict(torch.load(f"outputs/best_model_{run_id}.pth", map_location=device))
-
+    model.load_state_dict(torch.load(f"{OUTPUT_DIR}/best_model_{run_id}.pth", map_location=device))
     test_dataset = VideoDataset(TEST_DIR, transform)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
 
@@ -250,7 +251,7 @@ for run in range(NUM_RUNS):
     # ===== SAVE RESULTS =====
     results = {
         "run_id": run_id,
-        "instance_type": "g4dn.xlarge",
+        "instance_type": INSTANCE_TYPE,
         "batch_size": BATCH_SIZE,
         "epochs": EPOCHS,
         "train_time_sec": train_total_time,
@@ -260,10 +261,10 @@ for run in range(NUM_RUNS):
         "test_accuracy": test_acc
     }
 
-    with open(f"outputs/training_results_{run_id}.json", "w") as f:
+    with open(f"{OUTPUT_DIR}/training_results_{run_id}.json", "w") as f:
         json.dump(results, f, indent=4)
 
-    with open(f"outputs/epoch_logs_{run_id}.json", "w") as f:
+    with open(f"{OUTPUT_DIR}/epoch_logs_{run_id}.json", "w") as f:
         json.dump(epoch_logs, f, indent=4)
 
     # ===== CLEAN GPU =====
