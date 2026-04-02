@@ -29,7 +29,6 @@ Both platforms use identical GPU hardware (NVIDIA A10G) to isolate the effect of
 - Inference latency (mean, median, P95)
 - Cold start time
 - Cost per inference request
-- Throughput
 
 ## Model Architecture
 
@@ -54,15 +53,15 @@ Cloud-based-SLR/
 ├── data_exploration/        # Dataset analysis and top-100 selection
 ├── models/
 │   ├── cnn_lstm.py          # Model architecture
-│   ├── train_cnn_lstm_SM.py # SageMaker training script
-│   └── Launcher.py          # SageMaker job launcher
+│   ├── train_cnn_lstm_EC2.py # EC2 training script
+│   ├── train_cnn_lstm_SM.py  # SageMaker training script
+│   └── Launcher.py           # SageMaker job launcher
 ├── scripts/
 │   ├── extract_frames.py    # Frame extraction from videos
-│   └── train_cnn_lstm.py    # EC2 training script
+│   └── train_cnn_lstm.py    # Local training script
 ├── src/                     # Core ML modules
 ├── outputs/                 # Training results and epoch logs (JSON)
 └── requirements.txt
-```
 
 ## Setup
 
