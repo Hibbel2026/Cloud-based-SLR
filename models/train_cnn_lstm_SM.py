@@ -130,7 +130,8 @@ for run in range(NUM_RUNS):
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    scaler = torch.amp.GradScaler(enabled=torch.cuda.is_available())
+    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+
 
     best_val_acc = 0
 
