@@ -7,7 +7,7 @@ profiler_config = ProfilerConfig(
 )
 
 estimator = PyTorch(
-    entry_point="train_cnn_lstm_SM.py",
+    entry_point="train_sagemaker.py",
     role="arn:aws:iam::600889066998:role/AmazonSageMaker-ExecutionRole-20260331T124966",
     instance_count=1,
     instance_type="ml.g5.xlarge",

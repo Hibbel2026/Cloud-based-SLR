@@ -22,7 +22,7 @@ SEQUENCE_LENGTH = 16
 BATCH_SIZE = 4
 EPOCHS = 70
 INSTANCE_TYPE = "g5.xlarge"
-INSTANCE_PRICE_PER_HOUR = 1.41     # SageMaker approx
+INSTANCE_PRICE_PER_HOUR = 1.41     # SageMaker ml.g5.xlarge
 NUM_RUNS = 10
 
 os.makedirs("checkpoints", exist_ok=True)

@@ -1,36 +1,6 @@
-# Data - för stor för GitHub
-data/
-*.zip
-*.tar.gz
-
-# Python
+venv/
+venv310/
 __pycache__/
 *.pyc
-*.pyo
-.env
-venv/
-.venv/
-
-# Jupyter Notebooks
-.ipynb_checkpoints/
-
-# API nycklar
-kaggle.json
-*.pem
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Modeller (kan bli stora)
-*.h5
-*.pkl
-models/*.tar.gz
-
-# Logs
-logs/
-*.log
+data/
+Data_inference/
