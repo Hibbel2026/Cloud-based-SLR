@@ -1,5 +1,6 @@
 import os
 import json
+import gzip
 import torch
 import numpy as np
 
@@ -42,10 +43,15 @@ def model_fn(model_dir):
 
 
 def input_fn(request_body, content_type):
-    if content_type != "application/json":
+    if content_type == "application/octet-stream":
+        tensor_bytes = gzip.decompress(request_body)
+        arr = np.frombuffer(tensor_bytes, dtype=np.float32).reshape(1, 16, 3, 224, 224).copy()
+        tensor = torch.tensor(arr, dtype=torch.float32)
+    elif content_type == "application/json":
+        data = json.loads(request_body)
+        tensor = torch.tensor(data, dtype=torch.float32)
+    else:
         raise ValueError(f"Unsupported content type: {content_type}")
-    data = json.loads(request_body)
-    tensor = torch.tensor(data, dtype=torch.float32)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return tensor.to(device)
 

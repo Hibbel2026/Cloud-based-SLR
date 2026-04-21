@@ -9,6 +9,7 @@ import tempfile
 import os
 import time
 import json
+import gzip
 import boto3
 
 from cnn_lstm import CNN_LSTM
@@ -184,8 +185,9 @@ def predict_sagemaker():
     if tensor is None:
         return jsonify({"error": "Could not process video"}), 500
 
-    # Serialize preprocessed tensor as JSON
-    payload = json.dumps(tensor.cpu().tolist())
+    # Serialize preprocessed tensor as gzip-compressed float32 bytes (~2-3MB vs 30MB JSON)
+    tensor_bytes = tensor.cpu().numpy().astype("float32").tobytes()
+    payload = gzip.compress(tensor_bytes)
 
     # Use named profile locally; fall back to instance role on EC2
     try:
@@ -201,7 +203,7 @@ def predict_sagemaker():
     try:
         response = sm_runtime.invoke_endpoint(
             EndpointName=endpoint_name,
-            ContentType="application/json",
+            ContentType="application/octet-stream",
             Body=payload
         )
     except Exception as e:
