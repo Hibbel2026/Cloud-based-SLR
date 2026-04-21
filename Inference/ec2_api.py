@@ -8,11 +8,14 @@ import mediapipe as mp
 import tempfile
 import os
 import time
+import json
+import boto3
 
 from cnn_lstm import CNN_LSTM
 
 # ===== SETTINGS =====
 MODEL_PATH = "../outputs/training/best_model_2_1774971874.pth"
+ENDPOINT_FILE = os.path.join(os.path.dirname(__file__), "endpoint_name.txt")
 SEQUENCE_LENGTH = 16
 IMG_SIZE = 224
 NUM_CLASSES = 100
@@ -133,13 +136,13 @@ def predict():
         file.save(tmp.name)
         tmp_path = tmp.name
 
-    start_time = time.time()
-
     tensor = preprocess_video(tmp_path)
     os.unlink(tmp_path)
 
     if tensor is None:
         return jsonify({"error": "Could not process video"}), 500
+
+    start_time = time.time()
 
     with torch.no_grad():
         outputs = model(tensor)
@@ -150,7 +153,58 @@ def predict():
 
     return jsonify({
         "prediction": predicted_class,
-        "latency_sec": latency
+        "latency_sec": latency,
+        "platform": "EC2"
+    })
+
+
+@app.route("/predict/sagemaker", methods=["POST"])
+def predict_sagemaker():
+    if "video" not in request.files:
+        return jsonify({"error": "No video provided"}), 400
+
+    if not os.path.exists(ENDPOINT_FILE):
+        return jsonify({"error": "SageMaker endpoint not deployed (endpoint_name.txt not found)"}), 503
+
+    with open(ENDPOINT_FILE, "r") as f:
+        endpoint_name = f.read().strip()
+
+    if not endpoint_name:
+        return jsonify({"error": "endpoint_name.txt is empty"}), 503
+
+    file = request.files["video"]
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        file.save(tmp.name)
+        tmp_path = tmp.name
+
+    tensor = preprocess_video(tmp_path)
+    os.unlink(tmp_path)
+
+    if tensor is None:
+        return jsonify({"error": "Could not process video"}), 500
+
+    # Serialize preprocessed tensor as JSON
+    payload = json.dumps(tensor.cpu().tolist())
+
+    boto_session = boto3.session.Session(profile_name="HIBE", region_name="eu-north-1")
+    sm_runtime = boto_session.client("sagemaker-runtime")
+
+    # Measure only model inference latency
+    infer_start = time.time()
+    response = sm_runtime.invoke_endpoint(
+        EndpointName=endpoint_name,
+        ContentType="application/json",
+        Body=payload
+    )
+    latency_ms = (time.time() - infer_start) * 1000
+
+    result = json.loads(response["Body"].read().decode("utf-8"))
+
+    return jsonify({
+        "predicted_word": result["predicted_word"],
+        "latency_ms": round(latency_ms, 2),
+        "platform": "SageMaker"
     })
 
 @app.route("/", methods=["GET"])
@@ -256,12 +310,16 @@ def index():
       color: #f90;
     }
 
-    .platform-btn.disabled-btn {
+    .platform-btn:not(.active) {
       background: var(--surface2);
       border-color: var(--border);
       color: var(--text-muted);
-      cursor: not-allowed;
-      opacity: 0.45;
+    }
+
+    .platform-btn:not(.active):hover {
+      border-color: var(--accent);
+      color: var(--text);
+      opacity: 1;
     }
 
     .platform-btn small {
@@ -281,6 +339,17 @@ def index():
       border: 1px solid rgba(63, 185, 80, 0.3);
       color: var(--success);
       margin-top: 14px;
+    }
+
+    .platform-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    .platform-label span {
+      color: var(--accent);
+      font-weight: 600;
     }
 
     .dot {
@@ -495,12 +564,12 @@ def index():
       <button class="platform-btn active" id="btn-ec2" type="button">
         &#9889; EC2 <small>(g5.xlarge)</small>
       </button>
-      <button class="platform-btn disabled-btn" id="btn-sm" type="button" disabled>
-        &#9729; SageMaker <small>(coming soon)</small>
+      <button class="platform-btn" id="btn-sm" type="button">
+        &#9729; SageMaker <small>(g5.xlarge)</small>
       </button>
     </div>
     <div class="status-badge">
-      <span class="dot"></span> EC2 endpoint active
+      <span class="dot"></span> <span id="status-text">EC2 endpoint active</span>
     </div>
   </div>
 
@@ -535,7 +604,8 @@ def index():
     <div class="result-label">Prediction</div>
     <div class="divider"></div>
     <div class="prediction-word" id="prediction-text"></div>
-    <div class="latency-label">Inference time: <span id="latency-text"></span> s</div>
+    <div class="latency-label">Inference time: <span id="latency-text"></span></div>
+    <div class="platform-label">Platform: <span id="platform-text"></span></div>
   </div>
 
   <script>
@@ -547,6 +617,24 @@ def index():
     var videoEl      = document.getElementById("video-preview");
     var resultCard   = document.getElementById("result-card");
     var translateBtn = document.getElementById("translate-btn");
+    var btnEC2       = document.getElementById("btn-ec2");
+    var btnSM        = document.getElementById("btn-sm");
+    var statusText   = document.getElementById("status-text");
+    var selectedPlatform = "ec2";
+
+    btnEC2.addEventListener("click", function() {
+      selectedPlatform = "ec2";
+      btnEC2.classList.add("active");
+      btnSM.classList.remove("active");
+      statusText.textContent = "EC2 endpoint active";
+    });
+
+    btnSM.addEventListener("click", function() {
+      selectedPlatform = "sagemaker";
+      btnSM.classList.add("active");
+      btnEC2.classList.remove("active");
+      statusText.textContent = "SageMaker endpoint active";
+    });
 
     dropZone.addEventListener("dragover", function(e) {
       e.preventDefault();
@@ -598,17 +686,28 @@ def index():
       try {
         var formData = new FormData();
         formData.append("video", file);
-        var response = await fetch("/predict", { method: "POST", body: formData });
+
+        var endpoint = selectedPlatform === "sagemaker" ? "/predict/sagemaker" : "/predict";
+        var response = await fetch(endpoint, { method: "POST", body: formData });
         var data = await response.json();
 
-        if (data.prediction) {
-          document.getElementById("prediction-text").textContent = data.prediction;
-          document.getElementById("latency-text").textContent = data.latency_sec.toFixed(3);
-          resultCard.style.display = "block";
-          resultCard.scrollIntoView({ behavior: "smooth" });
-        } else {
-          alert("Error: " + (data.error || "Unknown error from server"));
+        if (data.error) {
+          alert("Error: " + data.error);
+          return;
         }
+
+        if (selectedPlatform === "sagemaker") {
+          document.getElementById("prediction-text").textContent = data.predicted_word;
+          document.getElementById("latency-text").textContent = data.latency_ms.toFixed(1) + " ms";
+          document.getElementById("platform-text").textContent = data.platform;
+        } else {
+          document.getElementById("prediction-text").textContent = data.prediction;
+          document.getElementById("latency-text").textContent = data.latency_sec.toFixed(3) + " s";
+          document.getElementById("platform-text").textContent = data.platform || "EC2";
+        }
+
+        resultCard.style.display = "block";
+        resultCard.scrollIntoView({ behavior: "smooth" });
       } catch (err) {
         alert("Request failed: " + err.message);
       } finally {
