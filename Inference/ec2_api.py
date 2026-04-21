@@ -187,16 +187,25 @@ def predict_sagemaker():
     # Serialize preprocessed tensor as JSON
     payload = json.dumps(tensor.cpu().tolist())
 
-    boto_session = boto3.session.Session(profile_name="HIBE", region_name="eu-north-1")
+    # Use named profile locally; fall back to instance role on EC2
+    try:
+        boto_session = boto3.session.Session(profile_name="HIBE", region_name="eu-north-1")
+        boto_session.client("sts").get_caller_identity()  # verify credentials work
+    except Exception:
+        boto_session = boto3.session.Session(region_name="eu-north-1")
+
     sm_runtime = boto_session.client("sagemaker-runtime")
 
     # Measure only model inference latency
     infer_start = time.time()
-    response = sm_runtime.invoke_endpoint(
-        EndpointName=endpoint_name,
-        ContentType="application/json",
-        Body=payload
-    )
+    try:
+        response = sm_runtime.invoke_endpoint(
+            EndpointName=endpoint_name,
+            ContentType="application/json",
+            Body=payload
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     latency_ms = (time.time() - infer_start) * 1000
 
     result = json.loads(response["Body"].read().decode("utf-8"))
