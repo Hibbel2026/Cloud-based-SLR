@@ -155,46 +155,471 @@ def predict():
 
 @app.route("/", methods=["GET"])
 def index():
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>ASL Recognition - EC2</title>
-        <style>
-            body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
-            h1 { color: #232f3e; }
-            .result { margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 8px; }
-            button { background: #ff9900; color: white; padding: 10px 20px; border: none; cursor: pointer; border-radius: 4px; }
-            .label { font-weight: bold; }
-        </style>
-    </head>
-    <body>
-        <h1>ASL Sign Language Recognition</h1>
-        <p>Platform: <strong>EC2 (g5.xlarge)</strong></p>
-        <form id="uploadForm">
-            <input type="file" id="videoFile" accept="video/*" required><br><br>
-            <button type="submit">Translate Sign</button>
-        </form>
-        <div id="result" class="result" style="display:none;">
-            <p><span class="label">Prediction:</span> <span id="prediction"></span></p>
-            <p><span class="label">Latency:</span> <span id="latency"></span> seconds</p>
-        </div>
-        <script>
-            document.getElementById("uploadForm").onsubmit = async function(e) {
-                e.preventDefault();
-                document.getElementById("result").style.display = "none";
-                const formData = new FormData();
-                formData.append("video", document.getElementById("videoFile").files[0]);
-                const response = await fetch("/predict", { method: "POST", body: formData });
-                const data = await response.json();
-                document.getElementById("prediction").innerText = data.prediction;
-                document.getElementById("latency").innerText = data.latency_sec.toFixed(2);
-                document.getElementById("result").style.display = "block";
-            };
-        </script>
-    </body>
-    </html>
-    '''
-    
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASL Sign Recognizer</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #21262d;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88, 166, 255, 0.12);
+      --success: #3fb950;
+      --radius: 10px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 20px 64px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    header h1 {
+      font-size: 1.85rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #58a6ff 0%, #79c0ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-size: 0.875rem;
+      letter-spacing: 0.3px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 100%;
+      max-width: 580px;
+      margin-bottom: 14px;
+    }
+
+    .section-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    /* Platform selector */
+    .platform-btns {
+      display: flex;
+      gap: 10px;
+    }
+
+    .platform-btn {
+      flex: 1;
+      padding: 11px 16px;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      font-size: 0.875rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .platform-btn.active {
+      background: rgba(255, 153, 0, 0.1);
+      border-color: #f90;
+      color: #f90;
+    }
+
+    .platform-btn.disabled-btn {
+      background: var(--surface2);
+      border-color: var(--border);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    .platform-btn small {
+      font-weight: 400;
+      font-size: 0.72rem;
+      opacity: 0.85;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(63, 185, 80, 0.1);
+      border: 1px solid rgba(63, 185, 80, 0.3);
+      color: var(--success);
+      margin-top: 14px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: pulse 1.8s ease infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 36px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s;
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-icon {
+      font-size: 2.4rem;
+      display: block;
+      margin-bottom: 10px;
+      pointer-events: none;
+    }
+
+    .drop-zone p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .drop-zone p .browse-link {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .drop-zone .formats {
+      font-size: 0.72rem;
+      margin-top: 6px;
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .file-selected {
+      display: none;
+      margin-top: 12px;
+      font-size: 0.82rem;
+      color: var(--success);
+      word-break: break-all;
+    }
+
+    /* Preview */
+    #preview-section {
+      display: none;
+      margin-top: 16px;
+    }
+
+    #video-preview {
+      width: 100%;
+      max-height: 280px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #000;
+      display: block;
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s;
+      line-height: 1;
+    }
+
+    #preview-btn {
+      display: none;
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    #preview-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    #translate-btn {
+      flex: 1;
+      background: linear-gradient(135deg, #1f6feb, #388bfd);
+      color: #fff;
+    }
+
+    #translate-btn:hover:not([disabled]) {
+      background: linear-gradient(135deg, #388bfd, #58a6ff);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 18px rgba(56, 139, 253, 0.35);
+    }
+
+    #translate-btn[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+      vertical-align: middle;
+      margin-right: 7px;
+    }
+
+    /* Result card */
+    #result-card {
+      display: none;
+      text-align: center;
+      padding: 32px 24px;
+    }
+
+    .result-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+    }
+
+    .prediction-word {
+      font-size: 2.8rem;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      background: linear-gradient(135deg, #58a6ff 0%, #a5d6ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-transform: capitalize;
+      line-height: 1.1;
+    }
+
+    .latency-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+
+    .latency-label span {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>ASL Sign Language Recognizer</h1>
+    <p>CNN-LSTM &middot; MediaPipe Holistic &middot; 100 Classes</p>
+  </header>
+
+  <!-- Platform Card -->
+  <div class="card">
+    <div class="section-label">Inference Platform</div>
+    <div class="platform-btns">
+      <button class="platform-btn active" id="btn-ec2" type="button">
+        &#9889; EC2 <small>(g5.xlarge)</small>
+      </button>
+      <button class="platform-btn disabled-btn" id="btn-sm" type="button" disabled>
+        &#9729; SageMaker <small>(coming soon)</small>
+      </button>
+    </div>
+    <div class="status-badge">
+      <span class="dot"></span> EC2 endpoint active
+    </div>
+  </div>
+
+  <!-- Upload Card -->
+  <div class="card">
+    <div class="section-label">Video Input</div>
+
+    <form id="upload-form">
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="videoFile" name="video" accept=".mp4,.mov,.avi" required>
+        <span class="drop-icon">&#127916;</span>
+        <p>Drag &amp; drop a video here, or <span class="browse-link">browse</span></p>
+        <p class="formats">Accepted: .mp4 &nbsp;&middot;&nbsp; .mov &nbsp;&middot;&nbsp; .avi</p>
+      </div>
+
+      <div class="file-selected" id="file-name"></div>
+
+      <div id="preview-section">
+        <div style="height:10px;"></div>
+        <video id="video-preview" controls></video>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn" id="preview-btn">&#9654; Preview</button>
+        <button type="submit" class="btn" id="translate-btn">Translate Sign</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Result Card -->
+  <div class="card" id="result-card">
+    <div class="result-label">Prediction</div>
+    <div class="divider"></div>
+    <div class="prediction-word" id="prediction-text"></div>
+    <div class="latency-label">Inference time: <span id="latency-text"></span> s</div>
+  </div>
+
+  <script>
+    var dropZone     = document.getElementById("drop-zone");
+    var fileInput    = document.getElementById("videoFile");
+    var fileNameEl   = document.getElementById("file-name");
+    var previewBtn   = document.getElementById("preview-btn");
+    var previewSec   = document.getElementById("preview-section");
+    var videoEl      = document.getElementById("video-preview");
+    var resultCard   = document.getElementById("result-card");
+    var translateBtn = document.getElementById("translate-btn");
+
+    dropZone.addEventListener("dragover", function(e) {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", function() {
+      dropZone.classList.remove("dragover");
+    });
+    dropZone.addEventListener("drop", function(e) {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        onFileChosen();
+      }
+    });
+
+    fileInput.addEventListener("change", onFileChosen);
+
+    function onFileChosen() {
+      var file = fileInput.files[0];
+      if (!file) return;
+      fileNameEl.textContent = "\\u2714 " + file.name;
+      fileNameEl.style.display = "block";
+      previewBtn.style.display = "inline-block";
+      previewSec.style.display = "none";
+      videoEl.src = "";
+      resultCard.style.display = "none";
+    }
+
+    previewBtn.onclick = function() {
+      var file = fileInput.files[0];
+      if (!file) return;
+      videoEl.src = URL.createObjectURL(file);
+      previewSec.style.display = "block";
+      videoEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+
+    document.getElementById("upload-form").onsubmit = async function(e) {
+      e.preventDefault();
+
+      var file = fileInput.files[0];
+      if (!file) return;
+
+      translateBtn.disabled = true;
+      translateBtn.innerHTML = "<span class=\\"spinner\\"></span>Translating&hellip;";
+      resultCard.style.display = "none";
+
+      try {
+        var formData = new FormData();
+        formData.append("video", file);
+        var response = await fetch("/predict", { method: "POST", body: formData });
+        var data = await response.json();
+
+        if (data.prediction) {
+          document.getElementById("prediction-text").textContent = data.prediction;
+          document.getElementById("latency-text").textContent = data.latency_sec.toFixed(3);
+          resultCard.style.display = "block";
+          resultCard.scrollIntoView({ behavior: "smooth" });
+        } else {
+          alert("Error: " + (data.error || "Unknown error from server"));
+        }
+      } catch (err) {
+        alert("Request failed: " + err.message);
+      } finally {
+        translateBtn.disabled = false;
+        translateBtn.innerHTML = "Translate Sign";
+      }
+    };
+  </script>
+
+</body>
+</html>'''
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

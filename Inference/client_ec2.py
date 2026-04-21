@@ -5,7 +5,7 @@ import numpy as np
 import time
 
 VIDEO_DIR = "../Data_inference"
-EC2_URL = "http://13.60.92.36:5000/predict"
+EC2_URL = "http://16.16.248.152:5000/predict"
 OUTPUT_CSV = "../outputs/inference/ec2_inference_results.csv"
 
 videos = sorted([f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")])

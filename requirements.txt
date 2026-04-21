@@ -1,0 +1,8 @@
+
+flask
+torch
+torchvision
+mediapipe==0.10.13
+opencv-python
+numpy
+requests
